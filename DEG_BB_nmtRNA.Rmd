@@ -1,0 +1,496 @@
+---
+title: "DEG_BB_nmtRNA"
+output: DEG_BB_nmtRNA
+date: "2025-04-08"
+---
+
+
+```{r}
+setwd("/Users/shahada/Desktop/Research_Project/")
+```
+
+
+
+
+```{r}
+install.packages("readxl")
+library(readxl)
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(vsn)
+library(DESeq2)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(RColorBrewer)
+library(ComplexHeatmap)  # Load the ComplexHeatmap package
+library(circlize)  # Load circlize for annotations
+library(SummarizedExperiment)
+library(tibble)
+```
+
+
+
+
+
+```{r}
+# Mitochondrial genes (nuclear-encoded)
+mito_genes <- read_excel("Human.MitoCarta3.0 copy 2.xlsx", sheet = "A Human MitoCarta3.0")
+
+# ALS-related genes (e.g., DEGs from brain bank)
+als_genes <- read.delim("merged_cellular_BB.txt")
+```
+
+
+
+
+
+
+#Filtering 
+```{r}
+als_mito_filtered <- als_genes[als_genes$gene %in% mito_genes$EnsemblGeneID_mapping_version_20200130, ]
+```
+
+
+
+```{r}
+counts_nmtRNA_BB <- als_mito_filtered
+```
+
+
+
+
+
+```{r}
+coldata_nmtRNA_BB <- read.delim("./phenotypeStarting_BB.txt")
+```
+
+
+
+```{r}
+table(coldata_nmtRNA_BB$Status)
+```
+
+
+
+
+
+```{r}
+coldata_nmtRNA_BB <- coldata_nmtRNA_BB %>%
+  mutate(Sex = recode(Sex, "1" = "Male", "2" = "Female"),
+         Status = recode(Status, "1" = "Control", "2" = "Case"))
+```
+
+
+```{r}
+dim(counts_nmtRNA_BB)
+dim(coldata_nmtRNA_BB)
+```
+
+
+
+
+
+
+```{r}
+all.equal(colnames(counts_nmtRNA_BB), rownames(coldata_nmtRNA_BB))
+```
+
+
+
+
+
+
+#Matching strings
+```{r}
+# Set the 'gene' column as rownames
+rownames(counts_nmtRNA_BB) <- counts_nmtRNA_BB$gene
+counts_nmtRNA_BB$gene <- NULL
+```
+
+
+
+
+
+
+```{r}
+all.equal(colnames(counts_nmtRNA_BB), rownames(coldata_nmtRNA_BB))
+```
+
+
+
+
+
+
+
+
+```{r}
+se <- SummarizedExperiment(
+    assays = list(counts_nmtRNA_BB = as.matrix(counts_nmtRNA_BB)),
+    colData = coldata_nmtRNA_BB)
+```
+
+
+
+#Filter coldata from counts
+```{r}
+coldata_nmtRNA_BB$Status <- relevel(factor(coldata_nmtRNA_BB$Status), ref = "Control")
+```
+
+
+
+
+```{r}
+coldata_nmtRNA_BB$Status <- as.factor(coldata_nmtRNA_BB$Status)
+coldata_nmtRNA_BB$Sex <- as.factor(coldata_nmtRNA_BB$Sex)
+coldata_nmtRNA_BB$AgeCat <- as.factor(coldata_nmtRNA_BB$AgeCat)
+coldata_nmtRNA_BB$PMDCat <- as.factor(coldata_nmtRNA_BB$PMDCat)
+coldata_nmtRNA_BB$RINCat <- as.factor(coldata_nmtRNA_BB$RINCat)
+dds <- DESeqDataSetFromMatrix(countData = counts_nmtRNA_BB, colData = coldata_nmtRNA_BB, design = ~ Sex + AgeCat + PMDCat + RINCat + SV1 + Status, tidy = FALSE, ignoreRank = FALSE)
+```
+
+
+
+
+```{r}
+nrow(dds)
+```
+
+
+
+
+```{r}
+se <- dds[rowSums(assay(dds, "counts")) > 5, ]
+nrow(se)
+```
+
+
+
+```{r}
+dds <- DESeq(dds)
+```
+
+
+
+
+
+```{r}
+res_BB <- results(dds)
+```
+
+
+```{r}
+summary(res_BB)
+```
+
+
+
+
+
+```{r}
+if (!requireNamespace("biomaRt", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("biomaRt")
+
+library(biomaRt)
+```
+
+
+
+
+```{r}
+# Connect to Ensembl
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+```
+
+
+
+
+```{r}
+# Extract Ensembl IDs from your results
+ensembl_ids <- rownames(res_BB)
+
+# Map to gene symbols
+gene_annotations <- getBM(
+  filters = "ensembl_gene_id",
+  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+  values = ensembl_ids,
+  mart = mart
+)
+```
+
+
+
+
+```{r}
+# Convert DESeq2 results to data frame and add gene ID column
+res_df <- as.data.frame(res_BB)
+res_df$ensembl_gene_id <- rownames(res_df)
+
+# Merge with gene symbols
+res_annotated_BB <- merge(res_df, gene_annotations, by = "ensembl_gene_id", all.x = TRUE)
+head(res_annotated_BB)
+```
+
+
+
+#all sig DEGs
+```{r}
+all_deg_BB <- res_annotated_BB[which(res_annotated_BB$padj < 0.05), ]
+```
+
+
+
+```{r}
+dim(all_deg_BB)
+```
+```{r}
+summary(all_deg_BB$padj)
+```
+
+
+
+```{r}
+summary(res_annotated_BB$padj)
+summary(res_annotated_BB$log2FoldChange)
+```
+
+
+```{r}
+head(res_annotated_BB)
+```
+
+```{r}
+dim(res_annotated_BB)
+```
+
+
+
+#finding the FC threshold that fits 
+```{r}
+# In R (assuming you used limma or DESeq2):
+deg_sig <- all_deg_BB
+hist(deg_sig$log2FoldChange, breaks=100, main="Distribution of log2FC for significant genes")
+```
+
+
+#Calculate biological variability
+```{r}
+plotDispEsts(dds)
+```
+
+
+
+
+
+#Volcano plot of sig NEM DEGs
+```{r}
+library(ggplot2)
+
+# Filter for NEM genes only
+nem_deg <- res_annotated_BB
+
+nem_deg_clean <- nem_deg[!is.na(nem_deg$padj) & !is.na(nem_deg$log2FoldChange), ]
+
+
+# Define significance threshold for adjusted p-value only
+padj_thresh <- 0.05
+nem_deg_clean$significance <- ifelse(nem_deg_clean$padj < padj_thresh, "Significant", "Not significant")
+
+
+# Convert padj to numeric safely
+nem_deg_clean$padj <- as.numeric(as.character(nem_deg_clean$padj))
+
+# Plot
+ggplot(nem_deg_clean, aes(x = log2FoldChange, y = -log10(padj), color = significance)) +
+  geom_point(alpha = 0.8, size = 2) +
+  scale_color_manual(values = c("gray", "red")) +
+  theme_minimal() +
+  labs(title = "Volcano Plot of BB NEM DEGs (padj < 0.05)",
+       x = "log2(Fold Change)",
+       y = "-log10(adjusted p-value)",
+       color = "Significance") +
+  theme(text = element_text(size = 12))
+```
+
+
+
+
+
+```{r}
+install.packages("ggrepel")  # only run once
+library(ggrepel)
+```
+
+
+
+```{r}
+library(ggplot2)
+
+
+top_genes_BB <- nem_deg_clean[order(nem_deg_clean$padj), ][1:20, ]
+
+
+ggplot(nem_deg_clean, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point(aes(color = significance), alpha = 0.8, size = 2) +
+  geom_text_repel(data = top_genes_BB, aes(label = hgnc_symbol), size = 3, max.overlaps = 20) +
+  scale_color_manual(values = c("gray", "red")) +
+  theme_minimal() +
+  labs(
+    title = "BB Significant NEM DEGs",
+    x = "log2(Fold Change)",
+    y = "-log10(adjusted p-value)",
+    color = "Significance"
+  )
+```
+
+
+
+#ORA of NEM DEG
+```{r}
+install.packages("BiocManager")
+BiocManager::install(c("clusterProfiler", "org.Hs.eg.db", "enrichplot", "ggplot2", "DOSE"))
+```
+
+
+
+
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(ggplot2)
+```
+
+
+
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(dplyr)
+
+# Replace `gene_id` with your actual column name if different
+genes2_entrez <- bitr(all_deg_BB$ensembl_gene_id, 
+                      fromType = "ENSEMBL", 
+                      toType = "ENTREZID", 
+                      OrgDb = org.Hs.eg.db)
+```
+
+```{r}
+deg2_merged <- inner_join(all_deg_BB, genes2_entrez, by = c("ensembl_gene_id" = "ENSEMBL"))
+```
+
+
+
+```{r}
+go2 <- enrichGO(gene = deg2_merged$ENTREZID,
+                OrgDb = org.Hs.eg.db,
+                keyType = "ENTREZID",
+                ont = "BP",  # Options: "BP", "CC", "MF"
+                pAdjustMethod = "BH",
+                pvalueCutoff = 0.05,
+                qvalueCutoff = 0.2)
+go2
+```
+
+
+
+```{r}
+go_cc2 <- enrichGO(gene = deg2_merged$ENTREZID,
+                OrgDb = org.Hs.eg.db,
+                keyType = "ENTREZID",
+                ont = "CC",  # Options: "BP", "CC", "MF"
+                pAdjustMethod = "BH",
+                pvalueCutoff = 0.05,
+                qvalueCutoff = 0.2)
+```
+
+
+```{r}
+go_mf2 <- enrichGO(gene = deg2_merged$ENTREZID,
+                OrgDb = org.Hs.eg.db,
+                keyType = "ENTREZID",
+                ont = "MF",  # Options: "BP", "CC", "MF"
+                pAdjustMethod = "BH",
+                pvalueCutoff = 0.05,
+                qvalueCutoff = 0.2)
+```
+
+
+
+
+```{r}
+kegg2 <- enrichKEGG(gene = deg2_merged$ENTREZID,
+                    organism = "hsa",  # Use "mmu" if mouse
+                    pvalueCutoff = 0.05)
+```
+
+
+
+
+```{r}
+library(enrichplot)
+
+# GO dotplot
+dotplot(go2, showCategory = 10, title = "GO BP Enrichment - BB")
+```
+
+
+
+```{r}
+dotplot(go_cc2, showCategory = 10, title = "GO CC Enrichment - BB")
+```
+
+
+
+
+
+```{r}
+# KEGG dotplot
+dotplot(kegg2, showCategory = 10, title = "KEGG Enrichment - BB")
+```
+```{r}
+# Simple GO dotplot for top 10 categories
+dotplot(go_mf2, showCategory = 10, title = "GO MF Enrichment - BB") +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "plain"),
+    axis.text.y = element_text(size = 10)
+  )
+```
+
+
+```{r}
+p <- dotplot(go_mf2, showCategory = 10, title = "GO MF Enrichment - BB") +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "plain"),
+    axis.text.y = element_text(size = 10)
+  )
+
+
+ggsave("go_mf_enrichment_bb.png", plot = p, width = 8, height = 9, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
