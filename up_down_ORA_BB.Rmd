@@ -1,0 +1,248 @@
+---
+title: "up_down_ORA_BB"
+output: html_document
+date: "2025-07-23"
+---
+
+```{r}
+setwd("~/Desktop/Research_Project/")
+```
+
+
+
+```{r}
+# Load necessary libraries
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+up_bb <- read.csv("DEGs_nmtRNA_BB_upregulated_sig.csv")
+down_bb <- read.csv("DEGs_nmtRNA_BB_downregulated_sig.csv")
+
+up_tals <- read.csv("DEGs_nmtRNA_sig_TALS_upregulated.csv")
+down_tals <- read.csv("DEGs_nmtRNA_sig_TALS_downregulated.csv")
+```
+
+
+
+```{r}
+# Shared gene symbols between BB and TALS (across all DEGs)
+shared_genes_all <- intersect(
+  unique(c(up_tals$hgnc_symbol, down_tals$hgnc_symbol)),
+  unique(c(up_bb$hgnc_symbol, down_bb$hgnc_symbol))
+)
+```
+
+
+
+
+```{r}
+# Filter BB upregulated DEGs by shared genes
+up_tals_shared <- up_tals[up_tals$hgnc_symbol %in% shared_genes_all, ]
+
+# Filter BB downregulated DEGs by shared genes
+down_tals_shared <- down_tals[down_tals$hgnc_symbol %in% shared_genes_all, ]
+
+# Extract gene symbols
+up_tals_symbols_shared <- na.omit(toupper(up_tals_shared$hgnc_symbol))
+down_tals_symbols_shared <- na.omit(toupper(down_tals_shared$hgnc_symbol))
+
+head(up_tals_symbols_shared)
+head(down_tals_symbols_shared)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Load necessary libraries
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+up_bb <- read.csv("DEGs_nmtRNA_BB_upregulated_sig.csv")
+down_bb <- read.csv("DEGs_nmtRNA_BB_downregulated_sig.csv")
+
+
+# Step 1: Subset your DEGs into upregulated and downregulated gene symbols
+up_genes <- up_bb$hgnc_symbol[up_bb$log2FoldChange > 0 & up_bb$padj < 0.05]
+down_genes <- down_bb$hgnc_symbol[down_bb$log2FoldChange < 0 & down_bb$padj < 0.05]
+
+# Step 2: Convert SYMBOLS to ENTREZ IDs
+# (Clean up gene symbols just in case)
+up_genes <- toupper(up_genes)
+down_genes <- toupper(down_genes)
+
+# Use bitr() to convert from SYMBOL to ENTREZID
+up_gene_mapping <- bitr(up_genes,
+                        fromType = "SYMBOL",
+                        toType = "ENTREZID",
+                        OrgDb = org.Hs.eg.db)
+
+down_gene_mapping <- bitr(down_genes,
+                          fromType = "SYMBOL",
+                          toType = "ENTREZID",
+                          OrgDb = org.Hs.eg.db)
+
+# Step 3: Perform ORA on converted ENTREZ IDs
+up_ora_bp <- enrichGO(gene = up_gene_mapping$ENTREZID,
+                   OrgDb = org.Hs.eg.db,
+                   ont = "BP",
+                   pAdjustMethod = "BH",
+                   readable = TRUE)
+
+down_ora_bp <- enrichGO(gene = down_gene_mapping$ENTREZID,
+                     OrgDb = org.Hs.eg.db,
+                     ont = "BP",
+                     pAdjustMethod = "BH",
+                     readable = TRUE)
+```
+
+
+```{r}
+# Barplot of upregulated terms
+barplot(up_ora_bp, showCategory = 5, title = "Upregulated GO BP 'BB'", font.size = 10)
+
+# Barplot of downregulated terms
+barplot(down_ora_bp, showCategory = 5, title = "Downregulated GO BP 'BB'", font.size = 10)
+```
+
+
+```{r}
+# GO: Cellular Component (CC)
+up_ora_cc <- enrichGO(gene = up_gene_mapping$ENTREZID,
+                      OrgDb = org.Hs.eg.db,
+                      ont = "CC",
+                      pAdjustMethod = "BH",
+                      readable = TRUE)
+
+down_ora_cc <- enrichGO(gene = down_gene_mapping$ENTREZID,
+                        OrgDb = org.Hs.eg.db,
+                        ont = "CC",
+                        pAdjustMethod = "BH",
+                        readable = TRUE)
+
+# GO: Molecular Function (MF)
+up_ora_mf <- enrichGO(gene = up_gene_mapping$ENTREZID,
+                      OrgDb = org.Hs.eg.db,
+                      ont = "MF",
+                      pAdjustMethod = "BH",
+                      readable = TRUE)
+
+down_ora_mf <- enrichGO(gene = down_gene_mapping$ENTREZID,
+                        OrgDb = org.Hs.eg.db,
+                        ont = "MF",
+                        pAdjustMethod = "BH",
+                        pvalueCutoff = 1,
+                        qvalueCutoff = 1,
+                        readable = TRUE)
+
+# KEGG Pathways
+up_kegg <- enrichKEGG(gene = up_gene_mapping$ENTREZID,
+                      organism = 'hsa',
+                      pAdjustMethod = "BH")
+
+down_kegg <- enrichKEGG(
+  gene = down_gene_mapping$ENTREZID,
+  organism = 'hsa',
+  pAdjustMethod = "BH",
+  pvalueCutoff = 1,     # Allow all p-values
+  qvalueCutoff = 1
+)
+```
+
+
+
+
+
+
+```{r}
+# Upregulated CC
+barplot(up_ora_cc, showCategory = 5, title = "Upregulated: GO Cellular Component 'BB'")
+
+# Downregulated CC
+barplot(down_ora_cc, showCategory = 5, title = "Downregulated: GO Cellular Component 'BB'")
+
+# Upregulated MF
+barplot(up_ora_mf, showCategory = 5, title = "Upregulated: GO Molecular Function 'BB'")
+
+# Downregulated MF
+barplot(down_ora_mf, showCategory = 5, title = "Upregulated: GO Molecular Function 'BB'")
+
+
+# Upregulated KEGG
+barplot(up_kegg, showCategory = 5, title = "Upregulated: KEGG Pathways 'BB'")
+
+# Downregulated KEGG
+barplot(down_kegg, showCategory = 5, title = "Downregulated: KEGG Pathways 'BB'")
+
+
+```
+
+#Save
+```{r}
+library(ggplot2)
+library(clusterProfiler)
+library(patchwork)  # for combining and labeling plots
+```
+
+
+
+
+
+```{r}
+p1 <- barplot(up_ora_bp, showCategory = 5, title = "a. Upregulated: GO Biological Process") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+
+p2 <- barplot(down_ora_bp, showCategory = 5, title = "b. Downregulated: GO Biological Process") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+
+p3 <- barplot(up_ora_cc, showCategory = 5, title = "c. Upregulated: GO Cellular Component") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+
+p4 <- barplot(down_ora_cc, showCategory = 5, title = "d. Downregulated: GO Cellular Component") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+
+p5 <- barplot(up_ora_mf, showCategory = 5, title = "e. Upregulated: GO Molecular Function") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+
+p6 <- barplot(down_ora_mf, showCategory = 5, title = "f. Downregulated: GO Molecular Function") +
+  theme(plot.title = element_text(margin = margin(b = 10)))
+```
+
+
+
+
+```{r}
+# 2 rows, 3 columns example (adjust as needed)
+combined_plot <- (p1 | p2 | p3) / (p4 | p5 | p6)
+
+# Optional: set overall title
+combined_plot <- combined_plot + plot_annotation(title = "Over-Representation Analysis Results BB Dataset")
+```
+
+
+
+```{r}
+ggsave("ORA_barplots_combined.pdf", combined_plot, width = 17, height = 10)
+# or PNG:
+ggsave("ORA_barplots_combined_BB.png", combined_plot, width = 17, height = 10, dpi = 300)
+```
+
+
+
+
+
+
+
+
