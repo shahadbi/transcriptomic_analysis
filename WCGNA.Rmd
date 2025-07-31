@@ -1,0 +1,404 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-06-24"
+---
+
+```{r}
+setwd("~/Desktop/Research_Project/")
+```
+
+
+
+#Normalize raw count
+```{r}
+# Load packages
+library(DESeq2)
+library(WGCNA)
+
+# Load raw count matrix (genes x samples)
+counts <- read.delim("merged_cellular_BB.txt", sep = "\t", row.names = 1)
+
+# Load metadata (samples x traits, including case/control column)
+metadata <- read.delim("phenotypeStarting_BB.txt", sep = "\t", row.names = 1)
+
+
+# Make sure sample names match
+all(colnames(counts) == rownames(metadata))  # Should return TRUE
+
+# Create DESeq2 object
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = metadata,
+                              design = ~ Status)  # Replace 'condition' with your case/control column name
+
+# VST normalization
+vsd <- vst(dds, blind = TRUE)
+vst_expr <- assay(vsd)  # Now your vst-normalized expression matrix
+head(vst_expr)
+datExpr <- t(vst_expr)
+dim(vst_expr)   # should be genes × samples
+dim(datExpr)    # should be samples × genes
+datTraits <- data.frame(Status = metadata$Status)
+rownames(datTraits) <- rownames(metadata)
+all(rownames(datExpr) == rownames(datTraits))  # Should return TRUE
+
+metadata_filtered <- metadata[rownames(datExpr), , drop = FALSE]
+dim(metadata_filtered)
+
+metadata$Status <- as.numeric(metadata$Status)
+str(metadata$Status)
+
+```
+
+
+```{r}
+packageVersion("WGCNA")
+```
+
+
+
+```{r}
+# Total missing values
+sum(is.na(datExpr))        # Should be 0
+
+# Infinite values (can occur after log transformation)
+sum(is.infinite(datExpr))  # Should be 0
+```
+
+
+
+
+
+```{r}
+# Check class of matrix
+is.numeric(datExpr)  # Should be TRUE
+
+# Inspect structure
+str(datExpr)         # Should show matrix/numeric
+```
+
+
+```{r}
+# Histogram of one gene's expression across samples
+hist(datExpr[1, ], main="Gene 1", xlab="Expression", breaks=20)
+
+# Density plot
+plot(density(datExpr[1, ]), main="Density: Gene 1")
+```
+
+
+
+
+
+#Preprocess for WGCNA
+```{r}
+# Check for good genes/samples
+gsg <- goodSamplesGenes(datExpr, verbose = 3)
+datExpr <- datExpr[gsg$goodSamples, gsg$goodGenes]
+dim(datExpr)
+```
+
+
+
+
+```{r}
+sampleTree <- hclust(dist(datExpr), method = "average")
+plot(sampleTree, main = "Sample Clustering to Detect Outliers", sub="", xlab="")
+```
+
+
+
+
+
+#Pick soft-thresholding power
+```{r}
+# Choose powers to evaluate
+powers <- 1:20
+
+# Pick soft threshold — use minimal threads to avoid errors
+library(WGCNA)
+allowWGCNAThreads(nThreads = 2)  # Minimum allowed
+
+sft <- pickSoftThreshold(datExpr, powerVector = powers, verbose = 5)
+
+
+
+# Plot soft-threshold selection
+par(mfrow = c(1,2))
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], type = "n",
+     xlab="Soft Threshold", ylab="Scale Free Topology Fit", main="Scale Independence")
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], labels=powers, col="red")
+
+plot(sft$fitIndices[,1], sft$fitIndices[,5], type = "n",
+     xlab="Soft Threshold", ylab="Mean Connectivity", main="Mean Connectivity")
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, col="red")
+
+# Choose a power where R² > 0.85–0.90
+softPower <- sft$powerEstimate
+```
+
+
+```{r}
+sft$powerEstimate
+```
+
+
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
+#Network construction
+```{r}
+cor <- WGCNA::cor
+net = blockwiseModules(datExpr, power = 4,
+                       TOMType = "signed", minModuleSize = 50,
+                       reassignThreshold = 0, mergeCutHeight = 0.25,
+                       numericLabels = TRUE, pamRespectsDendro = FALSE,
+                       saveTOMs = FALSE,
+                       verbose = 3)
+cor<-stats::cor
+
+## View modules
+## table(net$colors)
+moduleLabels = net$colors
+moduleColors = labels2colors(net$colors)
+MEs = net$MEs;
+geneTree = net$dendrograms[[1]]
+## open a graphics window
+sizeGrWindow(12, 9)
+## png('123.png',width=480, height=320)
+## Convert labels to colors for plotting
+mergedColors = labels2colors(net$colors)
+## Plot the dendrogram and the module colors underneath
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+                    "Module colors",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+
+```
+
+
+
+```{r}
+# Assume 'net' is the result from blockwiseModules()
+moduleLabels <- net$colors  # numeric labels of modules
+moduleColors <- labels2colors(moduleLabels)  # convert numeric to color names
+
+# Count genes per module
+moduleSizes <- table(moduleColors)
+
+# Convert to a sorted data frame
+moduleSizeTable_bb <- data.frame(
+  Module = names(moduleSizes),
+  Gene_No = as.integer(moduleSizes)
+)
+moduleSizeTable_bb <- moduleSizeTable_bb[order(-moduleSizeTable_bb$Gene_No), ]
+
+# View the table
+print(moduleSizeTable_bb)
+```
+
+
+
+#Save module size
+```{r}
+# Install if needed
+# install.packages("flextable")
+# install.packages("officer")
+
+install.packages("flextable")
+install.packages("officer")
+
+library(flextable)
+library(officer)
+
+# Create a flextable object
+ft <- flextable(moduleSizeTable_bb)
+
+# Export to Word
+doc <- read_docx() %>%
+  body_add_par("Table 1. Number of genes in each WGCNA module (BBB dataset)", style = "Normal") %>%
+  body_add_flextable(ft)
+
+# Save the document
+print(doc, target = "module_size_table_BBB.docx")
+
+```
+
+
+
+```{r}
+dim(MEs)
+```
+
+
+
+```{r}
+head(rownames(datExpr))          # From expression matrix
+head(rownames(metadata))         # From metadata
+```
+
+
+
+#relate modules to traits
+```{r}
+# 1. Ensure metadata and expression samples match
+stopifnot(all(rownames(datExpr) == rownames(metadata)))  # ✅ Should pass
+
+# 2. Extract the trait(s) from metadata
+# You can include multiple columns (e.g., Status, Sex, Age) if needed
+datTraits <- metadata[, "Status", drop = FALSE]
+
+# 3. Make sure it's numeric (you already said it is)
+str(datTraits)  # Confirm it's numeric
+
+# 4. Recalculate module eigengenes
+MEs <- moduleEigengenes(datExpr, colors = net$colors)$eigengenes
+
+# 5. Calculate module–trait correlation and p-values
+moduleTraitCor <- cor(MEs, datTraits, use = "p")
+moduleTraitPvalue <- corPvalueStudent(moduleTraitCor, nSamples = nrow(datExpr))
+
+# 6. Show top 10 most correlated modules with 'Status'
+topModules <- order(abs(moduleTraitCor[, "Status"]), decreasing = TRUE)[1:10]
+
+# 7. Plot heatmap of top modules
+labeledHeatmap(
+  Matrix = moduleTraitCor[topModules, , drop = FALSE],
+  xLabels = colnames(datTraits),
+  yLabels = rownames(moduleTraitCor)[topModules],
+  ySymbols = rownames(moduleTraitCor)[topModules],
+  colorLabels = FALSE,
+  colors = blueWhiteRed(50),
+  textMatrix = signif(moduleTraitCor[topModules, , drop = FALSE], 2),
+  setStdMargins = FALSE,
+  cex.text = 0.8,
+  zlim = c(-1, 1),
+  main = "Top 10 Module–Trait Relationships BB"
+)
+```
+
+
+#module relationships
+```{r}
+# 1. Calculate eigengenes if not already done
+MEs <- moduleEigengenes(datExpr, colors = net$colors)$eigengenes
+
+# 2. Select top 15 modules by eigengene variance
+topModules <- names(sort(apply(MEs, 2, var), decreasing = TRUE))[1:15]
+topMEs <- MEs[, topModules]
+
+# 3. Compute correlation between top module eigengenes
+topCorMatrix <- cor(topMEs, use = "p")
+
+# 4. Plot heatmap
+labeledHeatmap(
+  Matrix = topCorMatrix,
+  xLabels = topModules,
+  yLabels = topModules,
+  ySymbols = topModules,
+  colorLabels = FALSE,
+  colors = blueWhiteRed(50),
+  setStdMargins = FALSE,
+  cex.text = 0.8,
+  cex.lab.x = 0.9,
+  cex.lab.y = 0.9,
+  zlim = c(0, 1),
+  main = "Top 15 Module Eigengene Correlations BB"
+)
+```
+
+
+
+
+#NEM Hub Extraction 
+```{r}
+# Load libraries
+library(WGCNA)
+library(readxl)
+library(biomaRt)
+
+# --------------------------
+# 1. Load MitoCarta NEM genes
+# --------------------------
+mitocarta <- read_excel("Human.MitoCarta3.0 copy 2.xlsx", sheet = "A Human MitoCarta3.0")
+mitocarta_nem <- unique(mitocarta$Symbol)
+
+# --------------------------
+# 2. Find top 5 modules most correlated with a trait
+# --------------------------
+trait_column <- "Status"  # Can change to "Sex", etc.
+moduleTraitCor <- cor(MEs, datTraits, use = "p")
+
+cor_vec <- abs(moduleTraitCor[, trait_column])
+topModules <- names(sort(cor_vec, decreasing = TRUE))[1:5]  # e.g. "ME1", "ME2", ...
+module_numbers <- as.numeric(sub("ME", "", topModules))
+module_colors <- labels2colors(module_numbers)
+data.frame(Module = topModules, Color = module_colors)  # Check
+
+# --------------------------
+# 3. Choose module of interest (by number)
+# --------------------------
+module_number <- module_numbers[1]  # e.g., top module
+genes_in_module <- colnames(datExpr)[net$colors == module_number]
+
+# --------------------------
+# 4. Calculate MM and GS
+# --------------------------
+MEs <- moduleEigengenes(datExpr, colors = net$colors)$eigengenes
+MEs <- orderMEs(MEs)
+MM <- cor(datExpr, MEs, use = "p")
+GS <- cor(datExpr, datTraits, use = "p")
+
+column_name <- paste0("ME", module_number)  # module eigengene column
+
+# --------------------------
+# 5. Create hub gene table (MM + GS)
+# --------------------------
+top_hubs <- data.frame(
+  Gene = genes_in_module,
+  ModuleMembership = MM[genes_in_module, column_name],
+  GeneSignificance = GS[genes_in_module, trait_column]
+)
+top_hubs <- top_hubs[order(-abs(top_hubs$ModuleMembership)), ]
+
+# --------------------------
+# 6. Map Ensembl IDs to gene symbols
+# --------------------------
+ensembl_ids <- sub("\\..*", "", top_hubs$Gene)
+
+mart <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+gene_mapping <- getBM(
+  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+  filters = "ensembl_gene_id",
+  values = ensembl_ids,
+  mart = mart
+)
+
+# Merge gene symbols with top_hubs
+top_hubs$ensembl_gene_id <- ensembl_ids
+top_hubs_mapped <- merge(top_hubs, gene_mapping, by = "ensembl_gene_id")
+
+# --------------------------
+# 7. Filter for NEM genes
+# --------------------------
+nem_hubs <- top_hubs_mapped[top_hubs_mapped$hgnc_symbol %in% mitocarta_nem & 
+                              top_hubs_mapped$hgnc_symbol != "", ]
+
+head(nem_hubs)
+```
+
+
+
+#Save output
+```{r}
+# 8. Output
+# --------------------------
+write.csv(nem_hubs, paste0("NEM_Hubs_Module_bb", module_number, ".csv"), row.names = FALSE)
+```
