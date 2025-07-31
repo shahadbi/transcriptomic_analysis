@@ -98,9 +98,6 @@ dim(coldata_nmtRNA_BB)
 
 
 
-```{r}
-all.equal(colnames(counts_nmtRNA_BB), rownames(coldata_nmtRNA_BB))
-```
 
 
 
@@ -125,16 +122,6 @@ all.equal(colnames(counts_nmtRNA_BB), rownames(coldata_nmtRNA_BB))
 
 
 
-
-
-
-
-
-```{r}
-se <- SummarizedExperiment(
-    assays = list(counts_nmtRNA_BB = as.matrix(counts_nmtRNA_BB)),
-    colData = coldata_nmtRNA_BB)
-```
 
 
 
@@ -329,26 +316,6 @@ library(ggrepel)
 ```
 
 
-
-```{r}
-library(ggplot2)
-
-
-top_genes_BB <- nem_deg_clean[order(nem_deg_clean$padj), ][1:20, ]
-
-
-ggplot(nem_deg_clean, aes(x = log2FoldChange, y = -log10(padj))) +
-  geom_point(aes(color = significance), alpha = 0.8, size = 2) +
-  geom_text_repel(data = top_genes_BB, aes(label = hgnc_symbol), size = 3, max.overlaps = 20) +
-  scale_color_manual(values = c("gray", "red")) +
-  theme_minimal() +
-  labs(
-    title = "BB Significant NEM DEGs",
-    x = "log2(Fold Change)",
-    y = "-log10(adjusted p-value)",
-    color = "Significance"
-  )
-```
 
 
 
